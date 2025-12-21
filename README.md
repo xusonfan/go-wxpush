@@ -67,6 +67,8 @@ docker run -d -p 5566:5566 --name go-wxpush0 go-wxpush:v2 \
 
 ### 🐳 Docker 一键部署
 ```
+# 重新部署请先拉一遍最新的镜像
+docker pull hezhizheng/go-wxpush:v3
 # 参数格式与终端启动保持一致, 替换成实际值即可
 docker run -it -d -p 5566:5566 --init --name go-wxpush3 hezhizheng/go-wxpush:v3 \
 -port "5566" \
@@ -75,7 +77,8 @@ docker run -it -d -p 5566:5566 --init --name go-wxpush3 hezhizheng/go-wxpush:v3 
 -appid "xxx" \
 -secret "xxx" \
 -userid "xxx-k08" \
--template_id "xxx-Ks_PwGm--GSzllU"
+-template_id "xxx-Ks_PwGm--GSzllU" \
+-tz "Asia/Shanghai"
 ```
 
 ## 🗭 默认消息详情页
@@ -100,11 +103,12 @@ http://127.0.0.1:5566/wxsend
 | `port`        | String | 否    | 指定启动端口(仅针对命令行)       |
 | `title`       | String | 是    | 消息的标题。               |
 | `content`     | String | 是    | 消息的具体内容。             |
-| `appid`       | String | 否    | 临时覆盖默认的微信 AppID。     |
-| `secret`      | String | 否    | 临时覆盖默认的微信 AppSecret。 |
-| `userid`      | String | 否    | 临时覆盖默认的接收用户 OpenID。  |
-| `template_id` | String | 否    | 临时覆盖默认的模板消息 ID。      |
+| `appid`       | String | 是    | 临时覆盖默认的微信 AppID。     |
+| `secret`      | String | 是    | 临时覆盖默认的微信 AppSecret。 |
+| `userid`      | String | 是    | 临时覆盖默认的接收用户 OpenID。  |
+| `template_id` | String | 是    | 临时覆盖默认的模板消息 ID。      |
 | `base_url`    | String | 否    | 临时覆盖默认的跳转 URL。       |
+| `tz`          | String | 否    | 时区(默认东八区) |
 
 ### 使用示例
 

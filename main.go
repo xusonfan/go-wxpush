@@ -22,6 +22,7 @@ type RequestParams struct {
 	UserID     string `json:"userid" form:"userid"`
 	TemplateID string `json:"template_id" form:"template_id"`
 	BaseURL    string `json:"base_url" form:"base_url"`
+	Timezone   string `json:"tz" form:"tz"`
 }
 
 // 全局变量用于存储命令行参数
@@ -34,6 +35,7 @@ var (
 	cliTemplateID string
 	cliBaseURL    string
 	startPort     string
+	cliTimezone   string
 )
 
 // 微信AccessToken响应
@@ -65,6 +67,7 @@ func main() {
 	flag.StringVar(&cliUserID, "userid", "", "openid")
 	flag.StringVar(&cliTemplateID, "template_id", "", "模板ID")
 	flag.StringVar(&cliBaseURL, "base_url", "", "跳转url")
+	flag.StringVar(&cliTimezone, "tz", "Asia/Shanghai", "时区，默认东八区")
 	flag.StringVar(&startPort, "port", "", "端口")
 
 	// 解析命令行参数
@@ -140,6 +143,7 @@ func handleWxSend(w http.ResponseWriter, r *http.Request) {
 		params.UserID = r.URL.Query().Get("userid")
 		params.TemplateID = r.URL.Query().Get("template_id")
 		params.BaseURL = r.URL.Query().Get("base_url")
+		params.Timezone = r.URL.Query().Get("tz")
 	} else {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprintf(w, `{"error": "Method not allowed"}`)
@@ -167,6 +171,9 @@ func handleWxSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if params.BaseURL == "" && cliBaseURL != "" {
 		params.BaseURL = cliBaseURL
+	}
+	if params.Timezone == "" && cliTimezone != "" {
+		params.Timezone = cliTimezone
 	}
 
 	// 验证必要参数
@@ -267,7 +274,24 @@ func sendTemplateMessage(accessToken string, params RequestParams) (WechatAPIRes
 	// 构建请求URL
 	apiUrl := fmt.Sprintf("https://api.weixin.qq.com/cgi-bin/message/template/send?access_token=%s", accessToken)
 
-	timeStr := time.Now().Format("2006-01-02 15:04:05")
+	// 处理时区，默认东八区
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		location, _ = time.LoadLocation("Asia/Shanghai") // 确保默认使用东八区
+	}
+
+	// 如果参数中有时区，则尝试使用该时区
+	if params.Timezone != "" {
+		loc, err := time.LoadLocation(params.Timezone)
+		if err == nil {
+			location = loc
+		}
+	}
+
+	// 获取当前时间
+	currentTime := time.Now().In(location)
+	timeStr := currentTime.Format("2006-01-02 15:04:05")
+
 	// 构建请求数据
 	requestData := TemplateMessageRequest{
 		ToUser:     params.UserID,
