@@ -23,7 +23,7 @@
 ![wx1.png](img/wx1.png)
 - 获取appid 、appsecret  
 ![wx2.png](img/wx2.png)
-- 关注测试公众号，获取userid(微信号)，新增测试模板(注意模版内容填写格式 `内容: {{content.DATA}}`)  获取template_id(模板ID)
+- 关注测试公众号，获取userid(微信号)，新增测试模板，获取template_id(模板ID)(<mark> 注意模版内容填写格式 `内容: {{content.DATA}}` , 不要仅填写`{{content.DATA}}` 前面随便加一点其他文案，不然推送会不显示内容！！！  <mark>)
 ![wx3.png](img/wx3.png)
 - 将以上获取到的参数代入下面使用即可
 ![wx3.png](img/w0.jpg)
