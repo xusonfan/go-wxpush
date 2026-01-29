@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 	_ "time/tzdata"
@@ -81,6 +82,8 @@ func main() {
 	})
 	http.HandleFunc("/wxsend", handleWxSend)
 	http.HandleFunc("/detail", handleDetail)
+	http.HandleFunc("/admin", handleAdmin)
+	http.HandleFunc("/api/config", handleConfig)
 
 	// 启动服务器
 	//fmt.Println("Server is running on port 5566...")
@@ -100,8 +103,61 @@ func main() {
 
 // 嵌入静态HTML文件
 //
-//go:embed msg_detail.html
+//go:embed msg_detail.html admin.html
 var htmlContent embed.FS
+
+// 处理管理页面请求
+func handleAdmin(w http.ResponseWriter, r *http.Request) {
+	htmlData, err := htmlContent.ReadFile("admin.html")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, `{"error": "无法读取嵌入的 HTML 文件: %v"}`, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(htmlData)
+}
+
+// 处理配置持久化请求
+func handleConfig(w http.ResponseWriter, r *http.Request) {
+	configFile := "config.json"
+	if r.Method == "GET" {
+		data, err := os.ReadFile(configFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				w.Write([]byte("{}"))
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, `{"error": "%v"}`, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	} else if r.Method == "POST" {
+		var params RequestParams
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, `{"error": "无效的 JSON: %v"}`, err)
+			return
+		}
+		// 只保存配置相关的字段
+		configData := map[string]string{
+			"appid":       params.AppID,
+			"secret":      params.Secret,
+			"userid":      params.UserID,
+			"template_id": params.TemplateID,
+			"base_url":    params.BaseURL,
+		}
+		data, _ := json.MarshalIndent(configData, "", "  ")
+		if err := os.WriteFile(configFile, data, 0644); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, `{"error": "保存失败: %v"}`, err)
+			return
+		}
+		fmt.Fprintf(w, `{"message": "保存成功"}`)
+	}
+}
 
 // 处理详情页面请求
 func handleDetail(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +207,31 @@ func handleWxSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 尝试从 config.json 加载持久化配置实现热更新
+	if configData, err := os.ReadFile("config.json"); err == nil {
+		var savedConfig map[string]string
+		if err := json.Unmarshal(configData, &savedConfig); err == nil {
+			if params.AppID == "" {
+				params.AppID = savedConfig["appid"]
+			}
+			if params.Secret == "" {
+				params.Secret = savedConfig["secret"]
+			}
+			if params.UserID == "" {
+				params.UserID = savedConfig["userid"]
+			}
+			if params.TemplateID == "" {
+				params.TemplateID = savedConfig["template_id"]
+			}
+			if params.BaseURL == "" {
+				params.BaseURL = savedConfig["base_url"]
+			}
+			if params.Timezone == "" {
+				params.Timezone = savedConfig["tz"]
+			}
+		}
+	}
+
 	// 只有当GET/POST参数为空时，才使用命令行参数
 	if params.Title == "" && cliTitle != "" {
 		params.Title = cliTitle
@@ -183,7 +264,7 @@ func handleWxSend(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"error": "Missing required parameters"}`)
 		return
 	}
-	if params.BaseURL == "" {
+	if params.BaseURL == "" || params.BaseURL == "https://push.hzz.cool/detail" {
 		params.BaseURL = "https://push.hzz.cool"
 	}
 	if params.Content == "" {

@@ -1,0 +1,7 @@
+{
+  "appid": "your_appid",
+  "secret": "your_app_secret",
+  "userid": "your_openid",
+  "template_id": "your_template_id",
+  "base_url": "https://push.hzz.cool"
+}

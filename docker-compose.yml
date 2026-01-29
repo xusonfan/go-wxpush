@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  wxpush:
+    build: .
+    container_name: go-wxpush
+    ports:
+      - "5566:5566"
+    volumes:
+      - ./config.json:/app/config.json
+    restart: always

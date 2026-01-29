@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>微信推送管理页</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f4f7f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 500px;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #eee;
+            margin-bottom: 1.5rem;
+        }
+        .tab {
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            color: #07c160;
+            border-bottom-color: #07c160;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1rem;
+        }
+        textarea {
+            resize: vertical;
+            height: 120px;
+        }
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #07c160;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #06ae56;
+        }
+        #result {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 4px;
+            display: none;
+            word-break: break-all;
+        }
+        .success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #c8e6c9;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 1px solid #ffcdd2;
+        }
+        .hint {
+            font-size: 0.8rem;
+            color: #999;
+            margin-top: 0.5rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>微信推送管理</h2>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('send', this)">发送消息</div>
+            <div class="tab" onclick="switchTab('config', this)">接口配置</div>
+        </div>
+
+        <!-- 发送消息标签页 -->
+        <div id="send-tab" class="tab-content active">
+            <form id="pushForm">
+                <div class="form-group">
+                    <label for="title">消息标题</label>
+                    <input type="text" id="title" name="title" placeholder="请输入标题" value="管理页测试标题">
+                </div>
+                <div class="form-group">
+                    <label for="content">消息内容</label>
+                    <textarea id="content" name="content" placeholder="请输入内容">这是一条来自管理页的测试消息。</textarea>
+                </div>
+                <button type="submit">立即发送</button>
+            </form>
+            <div id="result"></div>
+        </div>
+
+        <!-- 接口配置标签页 -->
+        <div id="config-tab" class="tab-content">
+            <div class="form-group">
+                <label for="appid">AppID</label>
+                <input type="text" id="appid" placeholder="请输入微信 AppID">
+            </div>
+            <div class="form-group">
+                <label for="secret">AppSecret</label>
+                <input type="password" id="secret" placeholder="请输入微信 AppSecret">
+            </div>
+            <div class="form-group">
+                <label for="userid">用户 OpenID</label>
+                <input type="text" id="userid" placeholder="请输入接收者 OpenID">
+            </div>
+            <div class="form-group">
+                <label for="template_id">模板 ID</label>
+                <input type="text" id="template_id" placeholder="请输入消息模板 ID">
+            </div>
+            <div class="form-group">
+                <label for="base_url">跳转域名 (BaseURL)</label>
+                <input type="text" id="base_url" placeholder="例如: https://push.hzz.cool">
+            </div>
+            <button onclick="saveConfig()">保存配置</button>
+            <p class="hint">配置将保存在浏览器本地 (localStorage)</p>
+        </div>
+    </div>
+
+    <script>
+        const configFields = ['appid', 'secret', 'userid', 'template_id', 'base_url'];
+
+        // 切换标签页
+        function switchTab(tabName, element) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            if (element) {
+                element.classList.add('active');
+            } else {
+                // 如果没有传 element (比如从 saveConfig 调用)，根据 tabName 激活
+                const index = tabName === 'send' ? 0 : 1;
+                document.querySelectorAll('.tab')[index].classList.add('active');
+            }
+            document.getElementById(tabName + '-tab').classList.add('active');
+        }
+
+        // 加载配置
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                configFields.forEach(field => {
+                    if (config[field]) {
+                        document.getElementById(field).value = config[field];
+                        // 同时同步到 localStorage 作为备份
+                        localStorage.setItem('wxpush_' + field, config[field]);
+                    } else {
+                        // 如果后端没有，尝试从 localStorage 恢复
+                        const saved = localStorage.getItem('wxpush_' + field);
+                        if (saved) document.getElementById(field).value = saved;
+                    }
+                });
+            } catch (e) {
+                console.error('加载配置失败', e);
+            }
+        }
+
+        // 保存配置
+        async function saveConfig() {
+            const config = {};
+            configFields.forEach(field => {
+                config[field] = document.getElementById(field).value;
+                localStorage.setItem('wxpush_' + field, config[field]);
+            });
+
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    alert('配置已持久化保存到服务器');
+                    switchTab('send');
+                } else {
+                    alert('保存失败: ' + result.error);
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        // 页面加载时初始化
+        loadConfig();
+
+        // 处理发送
+        document.getElementById('pushForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'none';
+
+            // 获取配置
+            const config = {};
+            let missing = false;
+            // 必填字段校验（BaseURL 可选）
+            const requiredFields = ['appid', 'secret', 'userid', 'template_id'];
+            
+            configFields.forEach(field => {
+                config[field] = localStorage.getItem('wxpush_' + field);
+                if (requiredFields.includes(field) && !config[field]) missing = true;
+            });
+
+            if (missing) {
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'error';
+                resultDiv.textContent = '请先在“接口配置”标签页中完成必填项配置并保存！';
+                return;
+            }
+
+            const formData = new FormData(e.target);
+            const data = {
+                ...config,
+                title: formData.get('title'),
+                content: formData.get('content')
+            };
+
+            try {
+                const response = await fetch('/wxsend', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                resultDiv.style.display = 'block';
+                
+                if (result.errcode === 0) {
+                    resultDiv.className = 'success';
+                    resultDiv.textContent = '发送成功！';
+                } else {
+                    resultDiv.className = 'error';
+                    resultDiv.textContent = `发送失败：${result.errmsg || JSON.stringify(result)}`;
+                }
+            } catch (error) {
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'error';
+                resultDiv.textContent = `请求出错：${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>

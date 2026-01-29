@@ -1,8 +1,18 @@
-FROM scratch
+FROM golang:1.21-alpine AS builder
 
-WORKDIR $GOPATH/src/github.com/hezhizheng/go-wxpush
-COPY ./go-wxpush_linux_amd64 $GOPATH/src/github.com/hezhizheng/go-wxpush
+WORKDIR /app
+COPY . .
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=linux go build -o wxpush main.go
 
-ENTRYPOINT ["./go-wxpush_linux_amd64"]
- # 默认参数
-CMD ["-port", "5566", "-appid", "","-secret","","-userid","","-template_id","","-base_url","https://push.hzz.cool/detail","-title","","-content","","-tz",""]
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /app
+COPY --from=builder /app/wxpush .
+
+EXPOSE 5566
+
+ENTRYPOINT ["./wxpush"]
+CMD ["-port", "5566"]
