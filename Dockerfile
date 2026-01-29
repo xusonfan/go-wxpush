@@ -1,7 +1,8 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 COPY . .
+RUN go env -w GOPROXY=https://goproxy.cn,direct
 RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -o wxpush main.go
 

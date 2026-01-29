@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"embed"
 	"encoding/json"
@@ -14,6 +15,9 @@ import (
 	"sync"
 	"time"
 	_ "time/tzdata"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // 请求参数结构体
@@ -104,6 +108,106 @@ func main() {
 	if startPort != "" {
 		port = startPort
 	}
+
+	// MCP SSE 接口
+	mcpServer := server.NewMCPServer(
+		"go-wxpush",
+		"1.0.0",
+		server.WithLogging(),
+	)
+
+	// 添加发送消息的 Tool
+	mcpServer.AddTool(mcp.Tool{
+		Name:        "send_message",
+		Description: "发送微信推送消息",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"title": map[string]interface{}{
+					"type":        "string",
+					"description": "消息标题",
+				},
+				"content": map[string]interface{}{
+					"type":        "string",
+					"description": "消息内容",
+				},
+			},
+			Required: []string{"title", "content"},
+		},
+	}, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		arguments := request.Params.Arguments
+		argsMap, ok := arguments.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("无效的参数格式"), nil
+		}
+
+		title, _ := argsMap["title"].(string)
+		content, _ := argsMap["content"].(string)
+
+		params := RequestParams{
+			Title:   title,
+			Content: content,
+		}
+
+		// 复用现有的加载配置逻辑
+		if configData, err := os.ReadFile("config.json"); err == nil {
+			var savedConfig map[string]string
+			if err := json.Unmarshal(configData, &savedConfig); err == nil {
+				params.AppID = savedConfig["appid"]
+				params.Secret = savedConfig["secret"]
+				params.UserID = savedConfig["userid"]
+				params.TemplateID = savedConfig["template_id"]
+				params.BaseURL = savedConfig["base_url"]
+				params.Timezone = savedConfig["tz"]
+			}
+		}
+
+		// 补全默认值
+		if params.AppID == "" && cliAppID != "" {
+			params.AppID = cliAppID
+		}
+		if params.Secret == "" && cliSecret != "" {
+			params.Secret = cliSecret
+		}
+		if params.UserID == "" && cliUserID != "" {
+			params.UserID = cliUserID
+		}
+		if params.TemplateID == "" && cliTemplateID != "" {
+			params.TemplateID = cliTemplateID
+		}
+		if params.BaseURL == "" && cliBaseURL != "" {
+			params.BaseURL = cliBaseURL
+		}
+
+		// 统一默认 BaseURL 逻辑
+		if params.BaseURL == "" || params.BaseURL == "https://push.hzz.cool/detail" {
+			params.BaseURL = "https://push.hzz.cool"
+		}
+
+		if params.AppID == "" || params.Secret == "" || params.UserID == "" || params.TemplateID == "" {
+			return mcp.NewToolResultError("缺少必要配置，请先在管理页面配置微信参数"), nil
+		}
+
+		token, err := getAccessToken(params.AppID, params.Secret)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("获取 AccessToken 失败: %v", err)), nil
+		}
+
+		resp, err := sendTemplateMessage(token, params)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("发送消息失败: %v", err)), nil
+		}
+
+		if resp.Errcode != 0 {
+			return mcp.NewToolResultError(fmt.Sprintf("微信接口返回错误: %s (code: %d)", resp.Errmsg, resp.Errcode)), nil
+		}
+
+		return mcp.NewToolResultText("消息已成功发送"), nil
+	})
+
+	sseServer := server.NewSSEServer(mcpServer)
+	http.Handle("/sse", sseServer)
+	http.Handle("/message", sseServer)
 	fmt.Println("Server is running on： " + "http://127.0.0.1:" + port)
 
 	err := http.ListenAndServe(":"+port, nil)
@@ -425,11 +529,25 @@ func sendTemplateMessage(accessToken string, params RequestParams) (WechatAPIRes
 	currentTime := time.Now().In(location)
 	timeStr := currentTime.Format("2006-01-02 15:04:05")
 
+	// 构建跳转URL
+	detailURL := params.BaseURL
+	// 如果 BaseURL 为空，则只返回相对路径 (虽然通常不推荐，但作为兜底)
+	if detailURL != "" {
+		// 确保 BaseURL 包含协议
+		if !strings.HasPrefix(detailURL, "http://") && !strings.HasPrefix(detailURL, "https://") {
+			detailURL = "http://" + detailURL
+		}
+		if !strings.HasSuffix(detailURL, "/") {
+			detailURL += "/"
+		}
+	}
+	detailURL += `detail?title=` + url.QueryEscape(params.Title) + `&message=` + url.QueryEscape(params.Content) + `&date=` + url.QueryEscape(timeStr)
+
 	// 构建请求数据
 	requestData := TemplateMessageRequest{
 		ToUser:     params.UserID,
 		TemplateID: params.TemplateID,
-		URL:        params.BaseURL + `/detail?title=` + url.QueryEscape(params.Title) + `&message=` + url.QueryEscape(params.Content) + `&date=` + url.QueryEscape(timeStr),
+		URL:        detailURL,
 		Data: map[string]interface{}{
 			"title": map[string]string{
 				"value": params.Title,
