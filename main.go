@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	_ "time/tzdata"
 )
@@ -44,7 +45,19 @@ var (
 type AccessTokenResponse struct {
 	AccessToken string `json:"access_token"`
 	ExpiresIn   int    `json:"expires_in"`
+	Errcode     int    `json:"errcode"`
+	Errmsg      string `json:"errmsg"`
 }
+
+// TokenCache 缓存结构体
+type TokenCache struct {
+	AccessToken string
+	ExpireTime  time.Time
+	mu          sync.RWMutex
+}
+
+var tokenCacheMap = make(map[string]*TokenCache)
+var cacheMu sync.Mutex
 
 // 微信模板消息请求
 type TemplateMessageRequest struct {
@@ -304,6 +317,34 @@ type TokenRequestParams struct {
 }
 
 func getAccessToken(appid, secret string) (string, error) {
+	cacheKey := appid + "_" + secret
+
+	// 检查缓存
+	cacheMu.Lock()
+	cache, ok := tokenCacheMap[cacheKey]
+	if !ok {
+		cache = &TokenCache{}
+		tokenCacheMap[cacheKey] = cache
+	}
+	cacheMu.Unlock()
+
+	cache.mu.RLock()
+	if cache.AccessToken != "" && time.Now().Before(cache.ExpireTime) {
+		token := cache.AccessToken
+		cache.mu.RUnlock()
+		return token, nil
+	}
+	cache.mu.RUnlock()
+
+	// 缓存失效，获取新 Token
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	// 双重检查，防止并发请求多次刷新
+	if cache.AccessToken != "" && time.Now().Before(cache.ExpireTime) {
+		return cache.AccessToken, nil
+	}
+
 	// 构建请求参数
 	requestParams := TokenRequestParams{
 		GrantType:    "client_credential",
@@ -338,18 +379,28 @@ func getAccessToken(appid, secret string) (string, error) {
 		return "", err
 	}
 
-	//log.Println(string(body))
-
 	// 解析响应
 	var tokenResp AccessTokenResponse
 	err = json.Unmarshal(body, &tokenResp)
-	//log.Println(tokenResp)
-
 	if err != nil {
 		return "", err
 	}
 
-	return tokenResp.AccessToken, nil
+	if tokenResp.Errcode != 0 {
+		return "", fmt.Errorf("微信接口错误: %s (code: %d)", tokenResp.Errmsg, tokenResp.Errcode)
+	}
+
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("未能获取到 access_token, 响应内容: %s", string(body))
+	}
+
+	// 更新缓存 (提前 5 分钟过期以确保安全)
+	cache.AccessToken = tokenResp.AccessToken
+	cache.ExpireTime = time.Now().Add(time.Duration(tokenResp.ExpiresIn-300) * time.Second)
+
+	fmt.Printf("[%s] 已刷新 AccessToken, 有效期至: %s\n", time.Now().Format("15:04:05"), cache.ExpireTime.Format("15:04:05"))
+
+	return cache.AccessToken, nil
 }
 
 func sendTemplateMessage(accessToken string, params RequestParams) (WechatAPIResponse, error) {
